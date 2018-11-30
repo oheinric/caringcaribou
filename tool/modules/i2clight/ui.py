@@ -37,6 +37,8 @@ def main():
     screen.blit(background, (0, 0))
     pygame.display.flip()
 
+    max_c = 0
+
     # Event loop
     while 1:
         for event in pygame.event.get():
@@ -45,7 +47,10 @@ def main():
 
         color = sensor1.readColor()
         size = math.sqrt(color[0]*color[0] + color[1]*color[1] + color[2]*color[2])
-        color = (color[1] /size * 256, color[1] / size * 256, color[1] / size * 256)
+        if size > max_c:
+            max_c = size
+
+        color = (color[0] / max_c * 256, color[1] / max_c * 256, color[2] / max_c * 256)
         background.fill(color)
         screen.blit(background, (0, 0))
         pygame.display.flip()

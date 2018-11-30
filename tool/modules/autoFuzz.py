@@ -1,9 +1,13 @@
+from __future__ import print_function
+
 from lib.can_actions import CanActions, int_from_str_base, str_to_int_list
 from time import sleep
 from sys import exit
 import argparse
 import re
 import time
+import sys
+
 
 from i2clight.Mux import Mux
 from i2clight.RgbSensor import RgbSensor, ISL_I2C_ADDR
@@ -166,12 +170,15 @@ class AutoFuzzer:
         """
         with CanActions(notifier_enabled=False) as can_wrap:
             for msg in messages:
-                print("  Arb_id: 0x{0:08x}, data: {1}" \
-                        .format(msg.arb_id, ["{0:02x}".format(a) for a in msg.data]))
+                print("\r  Arb_id: 0x{0:08x}" \
+                        .format(msg.arb_id),
+                      end='')
+                sys.stdout.flush()
                 can_wrap.send(msg.data, msg.arb_id, msg.is_extended, msg.is_error, msg.is_remote)
-                if self.wait_for_on(msg.delay*2):
+                if self.wait_for_on(msg.delay):
+                    print("")
                     return True
-        print("No ON signal detected")
+        print("")
         return False
 
 
@@ -190,28 +197,27 @@ class AutoFuzzer:
                     .format(msg.arb_id, ["{0:02x}".format(a) for a in msg.data]))
             return True
 
+        mid = len(messages) // 2
         while True:
-            mid = len(messages) // 2
             print("Sending first half")
-            sleep(5)
             found = self.send_messages(messages[:mid])
             if not found:
                 found = found or self.wait_for_on(2)
             #found = input("Found [Y/n]")
-            print("done")
+            print("found!" if found else "done :(")
+            sleep(1)
             print("Sending second half")
-            sleep(5)
             found2 = self.send_messages(messages[mid:])
             if not found2:
                 found2 = found2 or self.wait_for_on(2)
             #
-            print("done")
+            print("found!" if found2 else "done :(")
+            sleep(1)
             #found2 = input("Found [Y/n]")
             if (not found) and (not found2):
                 # not found -> retry one level up, which was found
-                print("not found")
-                sleep(5)
-                return False
+                print("neither halfs")
+                #return False
             if found and (not found2):
                 print("found in first half")
                 if self.fuzz_messages(messages[:mid]):

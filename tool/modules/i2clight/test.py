@@ -17,10 +17,19 @@ def main():
     #if not sensor2.init():
     #    print("Error init sensor2")
     #    return
-
-    while True:
-        print("1: " + str(sensor1.readGreen()))
-        #print("2: " + str(sensor2.readColor()))
+    max_delay = 0
+    p_time = time.time()
+    try:
+        while True:
+            print("1: " + str(sensor1.readColor()))
+            t = time.time()
+            d = t - p_time
+            p_time = t
+            if d > max_delay:
+                max_delay = d
+            #print("2: " + str(sensor2.readColor()))
+    except KeyboardInterrupt:
+        print("max delay: " + str(max_delay))
 
 
 if __name__ == "__main__":
