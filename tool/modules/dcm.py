@@ -1,5 +1,6 @@
 from __future__ import print_function
-from lib.can_actions import CanActions, insert_message_length, int_from_str_base
+from lib.can_actions import CanActions
+from lib.common import parse_int_dec_or_hex
 from sys import stdout
 import argparse
 import time
@@ -70,14 +71,31 @@ NRC = {
 }
 
 
+def insert_message_length(data, pad=False):
+    """
+    Inserts a message length byte before data
+
+    :param data: Message data
+    :param pad: If True, pads returned data to 8 bytes
+    :return:
+    """
+    length = len(data)
+    if length > 7:
+        raise IndexError("Data can only contain up to 7 bytes: {0}".format(len(data)))
+    full_data = [length] + data
+    if pad:
+        full_data += [0x00] * (7-length)
+    return full_data
+
+
 def dcm_dtc(args):
     """
     Fetches and prints the Diagnostic Trouble Codes from a supported service (Mode $03)
 
     :param args: A namespace containing src, dst and clear
     """
-    send_arb_id = int_from_str_base(args.src)
-    rcv_arb_id = int_from_str_base(args.dst)
+    send_arb_id = args.src
+    rcv_arb_id = args.dst
     clear = args.clear
     big_data = []
     big_data_size = 0
@@ -165,10 +183,10 @@ def dcm_discovery(args):
 
     :param: args: A namespace containing min and max
     """
-    min_id = int_from_str_base(args.min)
-    max_id = int_from_str_base(args.max)
+    min_id = args.min
+    max_id = args.max
     no_stop = args.nostop
-    blacklist = [int_from_str_base(b) for b in args.blacklist]
+    blacklist = args.blacklist
 
     valid_responses = [0x50, 0x7F]
 
@@ -244,8 +262,8 @@ def service_discovery(args):
 
     :param args: A namespace containing src and dst
     """
-    send_arb_id = int_from_str_base(args.src)
-    rcv_arb_id = int_from_str_base(args.dst)
+    send_arb_id = args.src
+    rcv_arb_id = args.dst
 
     with CanActions(arb_id=send_arb_id) as can_wrap:
         print("Starting DCM service discovery")
@@ -293,9 +311,9 @@ def subfunc_discovery(args):
 
     :param args: A namespace containing src, dst, service, show and i
     """
-    send_arb_id = int_from_str_base(args.src)
-    rcv_arb_id = int_from_str_base(args.dst)
-    service_id = int_from_str_base(args.service)
+    send_arb_id = args.src
+    rcv_arb_id = args.dst
+    service_id = args.service
     show_data = args.show
     bruteforce_indices = args.i
 
@@ -372,6 +390,31 @@ def subfunc_discovery(args):
                 print("\n\nNo sub-functions were found")
 
 
+def tester_present(args):
+    send_arb_id = args.src
+    delay = args.delay
+    suppress_positive_response = args.spr
+
+    testerpresent_service_id = 0x3E
+
+    if suppress_positive_response:
+        sub_function = 0x80
+    else:
+        sub_function = 0x00
+
+    message_data = [0x02, testerpresent_service_id, sub_function, 0x00, 0x00, 0x00, 0x00, 0x00]
+    print("Sending TesterPresent to arbitration ID {0} (0x{0:02x})".format(send_arb_id))
+    print("\nPress Ctrl+C to stop\n")
+    with CanActions(arb_id=send_arb_id) as can_wrap:
+        counter = 1
+        while True:
+            can_wrap.send(data=message_data)
+            print("\rCounter:", counter, end="")
+            stdout.flush()
+            time.sleep(delay)
+            counter += 1
+
+
 def parse_args(args):
     """
     Parser for diagnostics module arguments.
@@ -388,17 +431,18 @@ def parse_args(args):
   cc.py dcm discovery -autoblacklist 10
   cc.py dcm services 0x733 0x633
   cc.py dcm subfunc 0x733 0x633 0x22 2 3
-  cc.py dcm dtc 0x7df 0x7e8""")
+  cc.py dcm dtc 0x7df 0x7e8
+  cc.py dcm testerpresent 0x733""")
     subparsers = parser.add_subparsers(dest="module_function")
     subparsers.required = True
 
     # Parser for diagnostics discovery
     parser_disc = subparsers.add_parser("discovery")
-    parser_disc.add_argument("-min", default=None)
-    parser_disc.add_argument("-max", default=None)
+    parser_disc.add_argument("-min", type=parse_int_dec_or_hex, default=None)
+    parser_disc.add_argument("-max", type=parse_int_dec_or_hex, default=None)
     parser_disc.add_argument("-nostop", default=False, action="store_true",
                              help="scan until end of range")
-    parser_disc.add_argument("-blacklist", metavar="B", default=[], nargs="+",
+    parser_disc.add_argument("-blacklist", metavar="B", type=parse_int_dec_or_hex, default=[], nargs="+",
                              help="arbitration IDs to ignore")
     parser_disc.add_argument("-autoblacklist", metavar="N", type=int, default=0,
                              help="scan for interfering signals for N seconds and blacklist matching arbitration IDs")
@@ -406,25 +450,32 @@ def parse_args(args):
 
     # Parser for diagnostics service discovery
     parser_info = subparsers.add_parser("services")
-    parser_info.add_argument("src", help="arbitration ID to transmit from")
-    parser_info.add_argument("dst", help="arbitration ID to listen to")
+    parser_info.add_argument("src", type=parse_int_dec_or_hex, help="arbitration ID to transmit from")
+    parser_info.add_argument("dst", type=parse_int_dec_or_hex, help="arbitration ID to listen to")
     parser_info.set_defaults(func=service_discovery)
 
     # Parser for diagnostics sub-function discovery
     parser_dump = subparsers.add_parser("subfunc")
-    parser_dump.add_argument("src", help="arbitration ID to transmit from")
-    parser_dump.add_argument("dst", help="arbitration ID to listen to")
-    parser_dump.add_argument("service", help="service ID (e.g. 0x22 for Read DID)")
+    parser_dump.add_argument("src", type=parse_int_dec_or_hex, help="arbitration ID to transmit from")
+    parser_dump.add_argument("dst", type=parse_int_dec_or_hex, help="arbitration ID to listen to")
+    parser_dump.add_argument("service", type=parse_int_dec_or_hex, help="service ID (e.g. 0x22 for Read DID)")
     parser_dump.add_argument("-show", action="store_true", help="show data in terminal")
     parser_dump.add_argument("i", type=int, nargs="+", help="sub-function indices")
     parser_dump.set_defaults(func=subfunc_discovery)
 
     # Parser for DTC
     parser_dtc = subparsers.add_parser("dtc")
-    parser_dtc.add_argument("src", help="arbitration ID to transmit from")
-    parser_dtc.add_argument("dst", help="arbitration ID to listen to")
+    parser_dtc.add_argument("src", type=parse_int_dec_or_hex, help="arbitration ID to transmit from")
+    parser_dtc.add_argument("dst", type=parse_int_dec_or_hex, help="arbitration ID to listen to")
     parser_dtc.add_argument("-clear", action="store_true", help="Clear DTC / MIL")
     parser_dtc.set_defaults(func=dcm_dtc)
+
+    # Parser for TesterPresent
+    parser_tp = subparsers.add_parser("testerpresent")
+    parser_tp.add_argument("src", type=parse_int_dec_or_hex, help="arbitration ID to transmit from")
+    parser_tp.add_argument("-delay", type=float, default=0.5, help="delay between each TesterPresent message")
+    parser_tp.add_argument("-spr", action="store_true", help="suppress positive response")
+    parser_tp.set_defaults(func=tester_present)
 
     args = parser.parse_args(args)
     return args

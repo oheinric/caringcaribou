@@ -1,5 +1,6 @@
 from __future__ import print_function
-from lib.can_actions import CanActions, int_from_str_base, msg_to_candump_format
+from lib.can_actions import CanActions
+from lib.common import msg_to_candump_format, parse_int_dec_or_hex
 from modules.send import FILE_LINE_COMMENT_PREFIX
 from sys import argv, stdout
 import argparse
@@ -25,22 +26,22 @@ def initiate_dump(handler, whitelist, separator_seconds, candump_format):
         format_func = str
     separator_enabled = separator_seconds is not None
     last_message_timestamp = datetime.datetime.min
-    last_message_separator_printed = True
+    messages_since_last_separator = 0
 
     print("Dumping CAN traffic (press Ctrl+C to exit)".format(whitelist))
     with CanActions(notifier_enabled=False) as can_wrap:
         for msg in can_wrap.bus:
             # Separator handling
-            if separator_enabled and not last_message_separator_printed:
+            if separator_enabled and messages_since_last_separator > 0:
                 if (datetime.datetime.now() - last_message_timestamp).total_seconds() > separator_seconds:
                     # Print separator
-                    handler("---")
-                    last_message_separator_printed = True
+                    handler("--- Count: {0}".format(messages_since_last_separator))
+                    messages_since_last_separator = 0
             # Message handling
             if len(whitelist) == 0 or msg.arbitration_id in whitelist:
                 handler(format_func(msg))
                 last_message_timestamp = datetime.datetime.now()
-                last_message_separator_printed = False
+                messages_since_last_separator += 1
 
 
 def parse_args(args):
@@ -55,12 +56,14 @@ def parse_args(args):
                                      description="CAN traffic dump module for CaringCaribou",
                                      epilog="""Example usage:
   cc.py dump
+  cc.py dump -s 1.0
   cc.py dump -f output.txt
   cc.py dump -c -f output.txt 0x733 0x734""")
     parser.add_argument("-f", "--file",
                         metavar="F",
                         help="Write output to file F (default: stdout)")
     parser.add_argument("whitelist",
+                        type=parse_int_dec_or_hex,
                         metavar="W",
                         nargs="*",
                         help="Arbitration ID to whitelist")
@@ -98,9 +101,9 @@ def module_main(args):
     :param args: List of module arguments
     """
     args = parse_args(args)
-    whitelist = [int_from_str_base(x) for x in args.whitelist]
     separator_seconds = args.separator_seconds
     candump_format = args.candump_format
+    whitelist = args.whitelist
 
     # Print to stdout
     if args.file is None:

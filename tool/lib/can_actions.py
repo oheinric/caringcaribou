@@ -1,6 +1,8 @@
+from __future__ import print_function
+from lib.constants import ARBITRATION_ID_MAX, ARBITRATION_ID_MAX_EXTENDED, ARBITRATION_ID_MIN, BYTE_MAX, BYTE_MIN
+from sys import stdout, version_info
 import can
 import time
-from sys import version_info
 
 # Handle large ranges efficiently in both python 2 and 3
 if version_info[0] == 2:
@@ -11,101 +13,57 @@ MESSAGE_DELAY = 0.1
 DELAY_STEP = 0.02
 NOTIFIER_STOP_DURATION = 0.5
 
-ARBITRATION_ID_MIN = 0x0
-ARBITRATION_ID_MAX = 0x7FF
-ARBITRATION_ID_MAX_EXTENDED = 0x1FFFFFFF
-
-BYTE_MIN = 0x0
-BYTE_MAX = 0xFF
-
 # Global CAN interface setting, which can be set through the -i flag to cc.py
 # The value None corresponds to the default CAN interface (typically can0)
 DEFAULT_INTERFACE = None
 
 
-def int_from_str_base(s):
-    """
-    Converts a str to an int, supporting both base 10 and base 16 literals.
+def auto_blacklist(bus, duration, classifier_function, print_results):
+    """Listens for false positives on the CAN bus and generates an arbitration ID blacklist.
 
-    :param s: str representing an int in base 10 or 16
-    :return: int version of s on success, None otherwise
-    :rtype: int
+    Finds all can.Message <msg> on 'bus' where 'classifier_function(msg)' evaluates to True.
+    Terminates after 'duration' seconds and returns a set of all matching arbitration IDs.
+    Prints progress, time countdown and list of results if 'print_results' is True.
+
+    :param bus: CAN bus instance
+    :param duration: duration in seconds
+    :param classifier_function: function which, when called upon a can.Message instance,
+                                returns a bool indicating if it should be blacklisted
+    :param print_results: whether progress and results should be printed to stdout
+    :type bus: can.Bus
+    :type duration: float
+    :type classifier_function: function
+    :type print_results: bool
+    :return set of matching arbitration IDs to blacklist
+    :rtype set(int)
     """
-    try:
-        if s.startswith("0x"):
-            return int(s, base=16)
+    if print_results:
+        print("Scanning for arbitration IDs to blacklist")
+    blacklist = set()
+    start_time = time.time()
+    end_time = start_time + duration
+    while time.time() < end_time:
+        if print_results:
+            time_left = end_time - time.time()
+            num_matches = len(blacklist)
+            print("\r{0:> 5.1f} seconds left, {1} found".format(time_left, num_matches), end="")
+            stdout.flush()
+        # Receive message
+        msg = bus.recv(0.1)
+        if msg is None:
+            continue
+        # Classify
+        if classifier_function(msg):
+            # Add to blacklist
+            blacklist.add(msg.arbitration_id)
+    if print_results:
+        num_matches = len(blacklist)
+        print("\r  0.0 seconds left, {0} found".format(num_matches), end="")
+        if len(blacklist) > 0:
+            print("\n  Detected IDs: {0}".format(" ".join(sorted(list(map(hex, blacklist))))))
         else:
-            return int(s)
-    except (AttributeError, ValueError):
-        return None
-
-
-def str_to_int_list(s):
-    """
-    Converts a string representing CAN message data into a list of ints.
-
-    E.g. "0102c0ffee" -> [01, 02, 0xc0, 0xff, 0xee]
-
-    :param s: str representing hex data
-    :return: list of ints
-    :rtype: list
-    """
-    return [int(s[i * 2:i * 2 + 2], 16) for i in range(len(s) / 2)]
-
-
-def int_from_byte_list(byte_values, start_index=0, length=None):
-    """
-    Parses a range of unsigned-up-to-8-bit-ints (bytes) from a list into a single int
-
-    E.g. int_from_byte_list([0x11, 0x22, 0x33, 0x44], 1, 2) = 0x2233 = 8755
-
-    :param byte_values: List of ints
-    :param start_index: Index of first byte in 'byte_values' to parse
-    :param length: Number of bytes to parse
-    :return: int of parsed bytes
-    """
-    if length is None:
-        length = len(byte_values)
-    value = 0
-    for i in (range(start_index, start_index+length)):
-        value = value << 8
-        value += byte_values[i]
-    return value
-
-
-def msg_to_candump_format(msg):
-    """
-    Converts a CAN message to a string on candump format.
-
-    E.g. msg_to_candump_format(can.Message(arbitration_id=0x7ff, data=[
-
-    :param msg: CAN message
-    :return: str on candump format
-    """
-    if msg.is_extended_id:
-        output = "({0:.6f}) {1} {2:08X}#{3}"
-    else:
-        output = "({0:.6f}) {1} {2:03X}#{3}"
-    data = "".join(["{0:02X}".format(x) for x in msg.data])
-    candump = output.format(msg.timestamp, msg.channel, msg.arbitration_id, data)
-    return candump
-
-
-def insert_message_length(data, pad=False):
-    """
-    Inserts a message length byte before data
-
-    :param data: Message data
-    :param pad: If True, pads returned data to 8 bytes
-    :return:
-    """
-    length = len(data)
-    if length > 7:
-        raise IndexError("Data can only contain up to 7 bytes: {0}".format(len(data)))
-    full_data = [length] + data
-    if pad:
-        full_data += [0x00] * (7-length)
-    return full_data
+            print()
+    return blacklist
 
 
 class CanActions:
