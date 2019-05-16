@@ -46,7 +46,8 @@ def main():
                 return
 
         color = sensor1.readColor()
-        size = math.sqrt(color[0]*color[0] + color[1]*color[1] + color[2]*color[2])
+        size = color[0]+color[1]+color[2]#math.sqrt(color[0]*color[0] + color[1]*color[1] + color[2]*color[2])
+        #max_c = size
         if size > max_c:
             max_c = size
 

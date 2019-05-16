@@ -94,12 +94,14 @@ FLAG_CONV_B = 0x30
 
 class RgbSensor:
     """ Read RGB values over i2c """
-    def __init__(self, i2c=None, addr=ISL_I2C_ADDR):
+    def __init__(self, i2c=None, addr=ISL_I2C_ADDR, fast=True):
         if i2c is None:
             FT232H.use_FT232H()
             gpio = FT232H.FT232H()
             i2c = FT232H.I2CDevice(gpio, addr)
         self.i2c = i2c
+        self.fast = fast
+        self.divisor = float(0x0FFF if self.fast else 0xFFFF)
 
     def init(self):
         if not self.i2c.ping():
@@ -107,7 +109,9 @@ class RgbSensor:
         if not self.reset():
             return False
 
-        if not self.config(CFG1_MODE_RGB | CFG1_10KLUX, CFG2_IR_ADJUST_HIGH, CFG_DEFAULT):
+        sensitivity = CFG1_12BIT if self.fast else CFG1_16BIT
+
+        if not self.config(CFG1_MODE_RGB | CFG1_375LUX | sensitivity, CFG2_IR_ADJUST_HIGH, CFG_DEFAULT):
             return False
 
         return True
@@ -136,11 +140,11 @@ class RgbSensor:
         return True
 
     def readRed(self):
-        return self.i2c.readU16(RED_L) / float(2**16)
+        return self.i2c.readU16(RED_L) / self.divisor
     def readGreen(self):
-        return self.i2c.readU16(GREEN_L) / float(2 ** 16)
+        return self.i2c.readU16(GREEN_L) / self.divisor
     def readBlue(self):
-        return self.i2c.readU16(BLUE_L) / float(2 ** 16)
+        return self.i2c.readU16(BLUE_L) / self.divisor
 
     def readColor(self):
         return (self.readRed(), self.readGreen(), self.readBlue())
