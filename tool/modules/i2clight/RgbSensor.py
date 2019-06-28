@@ -94,7 +94,7 @@ FLAG_CONV_B = 0x30
 
 class RgbSensor:
     """ Read RGB values over i2c """
-    def __init__(self, i2c=None, addr=ISL_I2C_ADDR, fast=True):
+    def __init__(self, i2c=None, addr=ISL_I2C_ADDR, fast=False):
         if i2c is None:
             FT232H.use_FT232H()
             gpio = FT232H.FT232H()
