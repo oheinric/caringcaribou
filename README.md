@@ -61,6 +61,14 @@ Details here: [xcp module](documentation/xcp.md)
 
 Details here: [fuzzer module](documentation/fuzzer.md)
 
+### autoFuzz - CAN Automatic Sensor Fuzzer
+- calibrate - Calibrates the sensors
+- identify - replay a log file and identify message causing a specific event
+- bruteforce - Bruteforce all ids with a given payload
+- omission - Iterates over all the arbitration ids in a log and consecutively omits all the messages sent to a specific one
+- mutate - Mutates the bits in a given range consecutively
+
+Since this module requires an extra specific hardware sensor harness set-up, we have added a more detailed [install and configure guide](documentation/SensorHarness-Install-Config.md).
 ### dump - Dump CAN traffic
 Dumps incoming traffic to stdout (terminal output) or file
 
@@ -78,6 +86,11 @@ Details here: [listener module](documentation/listener.md)
 
 ### test - Run test suite
 Runs automated Caring Caribou test suites
+
+### dashboard - Example Module for Interacting with a Dashboard
+A simple testing module example.
+Send a variety of different messages to trigger pre-determined events.
+This module is designed to work with the instrument cluster of an off-the-shelf automobile instrument clusters from the 2014 Seat Ibiza model.
 
 ### dcm - [deprecated] Diagnostics Control Module
 **Note**: This module has been replaced by the [UDS](documentation/uds.md) module. It is still supported by CC due to legacy reasons.
