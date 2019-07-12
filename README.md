@@ -70,7 +70,7 @@ This module is an implementation of the autoFuzzer described in the following KU
 - mutate - Mutates the bits in a given range consecutively
 
 This module will also ask you to register the behavior to be observed when it is started up, i.e. register the on and off state of the desired indicator light.
-Since this module requires an extra specific hardware sensor harness set-up, we have added a more detailed [install and configure guide](documentation/SensorHarness-Install-Config.md).
+Since this module requires an extra specific hardware sensor harness set-up, we have added a more detailed [install and configure guide](documentation/sensorharnessconfig.md).
 
 ### dump - Dump CAN traffic
 Dumps incoming traffic to stdout (terminal output) or file
