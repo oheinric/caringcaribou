@@ -62,13 +62,16 @@ Details here: [xcp module](documentation/xcp.md)
 Details here: [fuzzer module](documentation/fuzzer.md)
 
 ### autoFuzz - CAN Automatic Sensor Fuzzer
+This module is an implementation of the autoFuzzer described in the following KUL paper.
 - calibrate - Calibrates the sensors
 - identify - replay a log file and identify message causing a specific event
 - bruteforce - Bruteforce all ids with a given payload
 - omission - Iterates over all the arbitration ids in a log and consecutively omits all the messages sent to a specific one
 - mutate - Mutates the bits in a given range consecutively
 
+This module will also ask you to register the behavior to be observed when it is started up, i.e. register the on and off state of the desired indicator light.
 Since this module requires an extra specific hardware sensor harness set-up, we have added a more detailed [install and configure guide](documentation/SensorHarness-Install-Config.md).
+
 ### dump - Dump CAN traffic
 Dumps incoming traffic to stdout (terminal output) or file
 
