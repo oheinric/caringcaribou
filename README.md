@@ -1,6 +1,8 @@
 # Caring Caribou
 A friendly car security exploration tool
 
+This is the KUL CaringCaring fork, which includes an autoFuzzer implementation as described in the following paper.
+
 ## Rationale
 We are lacking a security testing tool for automotive. A zero-knowledge tool that can be dropped onto any CAN network and collect information regarding what services and vulnerabilities exist. This is a start.
 
