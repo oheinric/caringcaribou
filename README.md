@@ -1,6 +1,8 @@
 # Caring Caribou
 A friendly car security exploration tool
 
+This is the KUL CaringCaring fork, which includes an autoFuzzer implementation as described in the following paper.
+
 ## Rationale
 We are lacking a security testing tool for automotive. A zero-knowledge tool that can be dropped onto any CAN network and collect information regarding what services and vulnerabilities exist. This is a start.
 
@@ -61,6 +63,15 @@ Details here: [xcp module](documentation/xcp.md)
 
 Details here: [fuzzer module](documentation/fuzzer.md)
 
+### autoFuzz - CAN Automatic Sensor Fuzzer
+- calibrate - Calibrates the sensors
+- identify - Replay a log file and identify message causing a specific event
+- bruteforce - Bruteforce all ids with a given payload
+- omission - Iterates over all the arbitration ids in a log and consecutively omits all the messages sent to a specific one
+- mutate - Mutates the bits in a given range consecutively
+
+Details here: [autoFuzz module](documentation/autofuzz.md)
+
 ### dump - Dump CAN traffic
 Dumps incoming traffic to stdout (terminal output) or file
 
@@ -78,6 +89,11 @@ Details here: [listener module](documentation/listener.md)
 
 ### test - Run test suite
 Runs automated Caring Caribou test suites
+
+### dashboard - Example Module for Interacting with a Dashboard
+A simple testing module example.
+Send a variety of different messages to trigger pre-determined events.
+This module is designed to work with the instrument cluster of an off-the-shelf automobile instrument clusters from the 2014 Seat Ibiza model.
 
 ### dcm - [deprecated] Diagnostics Control Module
 **Note**: This module has been replaced by the [UDS](documentation/uds.md) module. It is still supported by CC due to legacy reasons.
@@ -103,7 +119,7 @@ Implementation of the ISO-14229-1 standard for Unified Diagnostic Services (UDS)
 Implementation of the ISO-15765-2 standard (ISO-TP). This is a transport protocol which enables sending of messages longer than 8 bytes over CAN by splitting them into multiple data frames.
 
 ## Hardware requirements
-Some sort of CAN bus interface compatible with socketCAN (http://elinux.org/CAN_Bus#CAN_Support_in_Linux)
+Some sort of CAN bus interface (http://elinux.org/CAN_Bus#CAN_Support_in_Linux)
 
 ## Software requirements
 - Python 2.7 or 3.x
@@ -134,3 +150,5 @@ The target ECU used for the development setup is an STM32F107 based dev-board fr
 * Craig Smith (OpenGarages.org)
 * internot
 * Mathijs Hubrechtsen
+* Lear Corporation
+* Timothy Werquin

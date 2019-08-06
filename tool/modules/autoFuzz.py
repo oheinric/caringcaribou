@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 from lib.can_actions import CanActions, ARBITRATION_ID_MAX, ARBITRATION_ID_MIN
+from lib.common import hex_str_to_nibble_list, int_from_byte_list, list_to_hex_str, str_to_int_list
 
 from time import sleep
 from sys import exit
@@ -16,7 +17,7 @@ import random
 from i2clight.Mux import Mux
 from i2clight.RgbSensor import RgbSensor, ISL_I2C_ADDR
 
-from j1939 import ArbitrationID
+import j1939
 
 J1939_PROP_ID_START = 0xFF00
 J1939_PROP_ID_END = 0xFFFF

@@ -75,7 +75,7 @@ class CanActions:
         :param arb_id: int default arbitration ID for object or None
         :param notifier_enabled: bool indicating whether a notifier for incoming message callbacks should be enabled
         """
-        self.bus = can.Bus(DEFAULT_INTERFACE, "socketcan")
+        self.bus = can.Bus(DEFAULT_INTERFACE)
         self.arb_id = arb_id
         self.bruteforce_running = False
         self.notifier = None
@@ -122,7 +122,7 @@ class CanActions:
             is_extended = arb_id > ARBITRATION_ID_MAX
         msg = can.Message(arbitration_id=arb_id,
                           data=data,
-                          extended_id=is_extended,
+                          is_extended_id=is_extended,
                           is_error_frame=is_error,
                           is_remote_frame=is_remote)
         self.bus.send(msg)

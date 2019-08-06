@@ -223,7 +223,7 @@ def pad_to_even_length(original_list, padding=0x0):
 
 def random_fuzz(static_arb_id=None, static_data=None, filename=None, min_id=ARBITRATION_ID_MIN,
                 max_id=ARBITRATION_ID_MAX, min_data_length=MIN_DATA_LENGTH, max_data_length=MAX_DATA_LENGTH,
-                show_status=True, seed=None):
+                start_index=0, show_status=True, seed=None):
     """
     A simple random fuzzer algorithm, which sends random or static data to random or static arbitration IDs
 
@@ -234,6 +234,7 @@ def random_fuzz(static_arb_id=None, static_data=None, filename=None, min_id=ARBI
     :param max_id: maximum allowed arbitration ID
     :param min_data_length: minimum allowed data length
     :param max_data_length: maximum allowed data length
+    :param start_index: int index to start at (can be used to resume interrupted session)
     :param show_status: bool indicating whether current message and counter should be printed to stdout
     :param seed: use given seed instead of random seed
     """
@@ -248,6 +249,8 @@ def random_fuzz(static_arb_id=None, static_data=None, filename=None, min_id=ARBI
     if static_data is not None and len(static_data) > MAX_DATA_LENGTH:
         raise ValueError("static_data ({0} bytes) must not be more than {1} bytes long".format(
             len(static_data), MAX_DATA_LENGTH))
+    if not 0 <= start_index:
+        raise ValueError("Invalid start index '{0}', must be 0 or larger".format(start_index))
 
     # Seed handling
     set_seed(seed)
@@ -256,7 +259,7 @@ def random_fuzz(static_arb_id=None, static_data=None, filename=None, min_id=ARBI
     def response_handler(msg):
         if msg.arbitration_id != arb_id or list(msg.data) != data:
             directive = directive_str(arb_id, data)
-            print("\rDirective: {0} (message {1})".format(directive, message_count))
+            print("\rDirective: {0} (index {1})".format(directive, current_index))
             print("  Received message: {0}".format(msg))
 
     arb_id = None
@@ -268,8 +271,11 @@ def random_fuzz(static_arb_id=None, static_data=None, filename=None, min_id=ARBI
             output_file = open(filename, "a")
         with CanActions() as can_wrap:
             # Register callback handler for incoming messages
+            current_index = 0
+            messages_sent = 0
             can_wrap.add_listener(response_handler)
-            message_count = 0
+            if show_status:
+                print("Starting at index {0}\n".format(start_index))
             # Fuzzing logic
             while True:
                 # Set arbitration ID
@@ -286,18 +292,24 @@ def random_fuzz(static_arb_id=None, static_data=None, filename=None, min_id=ARBI
                 else:
                     data = static_data
 
+                # If start index is not reached yet, continue without sending and sleeping
+                if current_index < start_index:
+                    current_index += 1
+                    continue
+
                 if show_status:
-                    print("\rMessages sent: {0}".format(message_count), end="")
+                    print("\rMessages sent: {0}, index: {1}".format(messages_sent, current_index), end="")
                     stdout.flush()
 
                 # Send message
                 can_wrap.send(data=data, arb_id=arb_id)
-                message_count += 1
+                messages_sent += 1
 
                 # Log to file
                 if file_logging_enabled:
                     write_directive_to_file_handle(output_file, arb_id, data)
                 sleep(DELAY_BETWEEN_MESSAGES)
+                current_index += 1
     except IOError as e:
         print("ERROR: {0}".format(e))
     finally:
@@ -397,8 +409,8 @@ def bruteforce_fuzz(arb_id, initial_data, data_bitmap, filename=None, start_inde
         print("Brute force finished")
 
 
-def mutate_fuzz(initial_arb_id, initial_data, arb_id_bitmap, data_bitmap, filename=None, show_status=True,
-                show_responses=False, seed=None):
+def mutate_fuzz(initial_arb_id, initial_data, arb_id_bitmap, data_bitmap, filename=None, start_index=0,
+                show_status=True, show_responses=False, seed=None):
     """
     Performs mutation based fuzzing of selected nibbles of a given arbitration ID and data.
     Nibble selection is controlled by bool lists 'arb_id_bitmap' and 'data_bitmap'.
@@ -408,10 +420,15 @@ def mutate_fuzz(initial_arb_id, initial_data, arb_id_bitmap, data_bitmap, filena
     :param arb_id_bitmap: list of bool values, representing which nibbles of 'initial_arb_id' to bruteforce
     :param data_bitmap: list of bool values, representing which nibbles of 'initial_data' to bruteforce
     :param filename: file to write cansend directives to
+    :param start_index: int index to start at (can be used to resume interrupted session)
     :param show_status: bool indicating whether current message and counter should be printed to stdout
     :param show_responses: bool indicating whether responses should be printed to stdout
     :param seed: use given seed instead of random seed
     """
+    # Sanity checks
+    if not 0 <= start_index:
+        raise ValueError("Invalid start index '{0}', must be 0 or larger".format(start_index))
+
     # Seed handling
     set_seed(seed)
 
@@ -439,9 +456,10 @@ def mutate_fuzz(initial_arb_id, initial_data, arb_id_bitmap, data_bitmap, filena
         if file_logging_enabled:
             output_file = open(filename, "a")
         with CanActions() as can_wrap:
+            current_index = 0
+            messages_sent = 0
             if show_responses:
                 can_wrap.add_listener(response_handler)
-            message_count = 0
             while True:
                 if number_of_nibbles_to_fuzz_arb_id > 0:
                     # Mutate arbitration ID
@@ -454,21 +472,23 @@ def mutate_fuzz(initial_arb_id, initial_data, arb_id_bitmap, data_bitmap, filena
                     fuzzed_nibbles_data = [random.randint(0, 0xF) for _ in range(number_of_nibbles_to_fuzz_data)]
                     data = apply_fuzzed_data(initial_data, fuzzed_nibbles_data, data_bitmap)
 
+                if current_index < start_index:
+                    current_index += 1
+                    continue
+
                 if show_status:
-                    print("\rSending {0:04x} # {1} ({2})".format(arb_id, list_to_hex_str(data, " "), message_count),
-                          end="")
+                    print("\rSending {0:04x} # {1} ({2} sent, index {3})".format(
+                        arb_id, list_to_hex_str(data, " "), messages_sent, current_index), end="")
                     stdout.flush()
 
                 can_wrap.send(data, arb_id)
-                message_count += 1
+                messages_sent += 1
 
                 # Log to file
                 if file_logging_enabled:
                     write_directive_to_file_handle(output_file, arb_id, data)
                 sleep(DELAY_BETWEEN_MESSAGES)
-    except KeyboardInterrupt:
-        if show_status:
-            print()
+                current_index += 1
     finally:
         if output_file is not None:
             output_file.close()
@@ -599,7 +619,7 @@ def __handle_random(args):
         padded_nibbles = pad_to_even_length(data_nibbles)
         data = nibbles_to_bytes(padded_nibbles)
     random_fuzz(static_arb_id=args.id, static_data=data, filename=args.file,
-                min_data_length=args.min, max_data_length=args.max, seed=args.seed)
+                min_data_length=args.min, max_data_length=args.max, start_index=args.index, seed=args.seed)
 
 
 def parse_hex_and_dot_indices(values, dot_index_marker="."):
@@ -651,7 +671,8 @@ def __handle_mutate(args):
     data, data_bitmap = parse_hex_and_dot_indices(args.data)
 
     mutate_fuzz(initial_arb_id=arb_id, initial_data=data, arb_id_bitmap=id_bitmap,
-                data_bitmap=data_bitmap, filename=args.file, show_responses=args.responses, seed=args.seed)
+                data_bitmap=data_bitmap, filename=args.file, start_index=args.index,
+                show_responses=args.responses, seed=args.seed)
 
 
 def __handle_replay(args):
@@ -703,6 +724,8 @@ def parse_args(args):
     cmd_random.add_argument("-file", "-f", default=None, help="log file for cansend directives")
     cmd_random.add_argument("-min", type=int, default=MIN_DATA_LENGTH, help="minimum data length")
     cmd_random.add_argument("-max", type=int, default=MAX_DATA_LENGTH, help="maximum data length")
+    cmd_random.add_argument("-index", "-i", metavar="I", type=parse_int_dec_or_hex, default=0,
+                            help="start index (for resuming previous session)")
     cmd_random.add_argument("-seed", "-s", metavar="S", type=parse_int_dec_or_hex, default=None, help="set random seed")
     cmd_random.add_argument("-delay", type=float, metavar="D", default=DELAY_BETWEEN_MESSAGES,
                             help="delay between messages")
@@ -727,6 +750,8 @@ def parse_args(args):
     cmd_mutate.add_argument("-responses", "-r", action="store_true", help="print responses to stdout")
     cmd_mutate.add_argument("-file", "-f", default=None, help="log file for cansend directives")
     cmd_mutate.add_argument("-seed", "-s", metavar="S", type=parse_int_dec_or_hex, default=None, help="set random seed")
+    cmd_mutate.add_argument("-index", "-i", metavar="I", type=parse_int_dec_or_hex, default=0,
+                            help="start index (for resuming previous session)")
     cmd_mutate.add_argument("-delay", type=float, metavar="D", default=DELAY_BETWEEN_MESSAGES,
                             help="delay between messages")
     cmd_mutate.set_defaults(func=__handle_mutate)
