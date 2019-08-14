@@ -288,7 +288,13 @@ class AutoFuzzer:
         return on_msg, off_msg
 
     def fuzz_stack(self, msgs_stack, sensorI, target_on=True):
-        """ sends half the stack recursivly TODO: better doc """
+        """ splits the first set of messages from msgs_stack
+        Will replay each half and observe the sensors.
+        When an activation is detected it will add that half to the stack.
+        When a single message is left it is returned.
+
+        :return The single responsible message or None
+        """
         
         signal_delay = 0.5
         repeat_delay = 0.5
@@ -300,8 +306,6 @@ class AutoFuzzer:
 
         messages = msgs_stack[-1]
         if len(messages) == 1:
-            # TODO: verify message (but wait for response when delay is low)
-            # may also occur in last send stuff
             print("Found message!")
             msg = messages[0]
             return msg
@@ -337,7 +341,7 @@ class AutoFuzzer:
             return None
 
         print("neither halfs")
-        if self.retry_count > 5:
+        if self.retry_count > 5 and len(msgs_stack) > 1:
             print("going back up")
             self.retry_count = 0
             msgs_stack.pop()
@@ -508,7 +512,6 @@ class AutoFuzzer:
         print("  {0} messages parsed, {1} arbitration ids".format(len(msgs), len(arb_ids)))
 
         # TODO: blacklist
-        #arb_ids.remove(0x18ef1727)
 
         for arb_id in arb_ids:
             print("Testing arb_id: 0x{0:08x}".format(arb_id))
@@ -581,8 +584,8 @@ def parse_args(args):
     """
     parser = argparse.ArgumentParser(prog="cc.py autoFuzz",
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
-                                     description="TODO",
-                                     epilog="""TODO""")
+                                     description="automatic fuzzer using a sensor harness for feedback",
+                                     epilog="""The autoFuzz module provides a number of fuzzing methods that use an external sensor harness for feedback during fuzzing""")
     parser.add_argument("--nsensors", "-ns", help="The number of attached sensors", type=int, default=1)
     parser.add_argument("--calib-file", "-cf", type=str, default=None, help="File to load calibration from")
     subparsers = parser.add_subparsers(dest="module_function")
