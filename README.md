@@ -6,6 +6,12 @@ We are lacking a security testing tool for automotive. A zero-knowledge tool tha
 
 This work was initiated as part of the research project HEAVENS (HEAling Vulnerabilities to ENhance Software Security and Safety), but lives on as a stand-alone project.
 
+## How to install
+Instructions available [here](documentation/howtoinstall.md)
+
+## Troubleshooting
+See common errors and solutions [here](documentation/troubleshooting.md)
+
 ## How to use
 The best way to understand how to use Caring Caribou is to look at the help screen:
 
@@ -36,53 +42,85 @@ The `/tests` folder contains automated test suites and `/documentation` stores m
 ## List of Modules
 A clean installation of Caring Caribou includes the following modules:
 
-### dcm.py - Diagnostics ISO 14229
-- discovery - ArbID Discovery. Tries to connect (02 10 01) to all possible ArbId (0x000-0x7FF) and collect valid responses (xx 7F or xx 50). Supports both manual and automatic blacklisting of arbitration IDs, in order to remove false positives.
-- services - Service Discovery. Brute force all Service Id's (SID) and report any responses (anything that is not xx F7 11)
-- subfunc - Sub-function Discovery. Brute force engine that takes SID and an index indicating which positions to brute force as input.
-- dtc - Diagnostic Trouble Codes.  Fetches DTCs.  Can clear DTCs and MIL (Engine Light) as well.
+### uds - Universal Diagnostic Services
+Discovers and utilizes various ISO 14229-1 services.
+- discovery - Scans for ECUs supporting diagnostics services
+- services - Scans for diagnostics services supported by an ECU
+- ecu_reset - Reset an ECU
+- testerpresent - Force an elevated session against an ECU to stay active
+- dump_dids - Dumps values of Dynamic Data Identifiers (DIDs)
 
-Detailed information on the [dcm-module](https://github.com/CaringCaribou/caringcaribou/blob/master/documentation/dcm.md).
+Details here: [uds module](documentation/uds.md)
 
-### xcp.py - Universal Measurement and Calibration Protocol (XCP)
-- discovery - ArbId Discovery. Tries to connect (FF) to all possible ArbId (0x000-0x7FF) and collect all valid responses (FF or FE)
-- info - XCP Get Basic Information. Connects and gets information about XCP abilities in the target environment
-- dump - XCP Upload. Used to dump ECU memory (SRAM, flash and bootloader) to file 
+### xcp - Universal Measurement and Calibration Protocol (XCP)
+- discovery - Scans for ECUs supporting XCP
+- info - XCP Get Basic Information. Retrieves information about XCP abilities of an ECU
+- dump - XCP Upload. Used to dump ECU memory (such as SRAM, flash and bootloader) to file 
 
-Detailed information on the [xcp-module](https://github.com/CaringCaribou/caringcaribou/blob/master/documentation/xcp.md).
+Details here: [xcp module](documentation/xcp.md)
 
-### fuzzer.py - CAN fuzzer
+### fuzzer - CAN fuzzer
 - random - sends random CAN messages
 - brute - brute forces all possible messages matching a given bit mask
 - mutate - mutate selected nibbles of a given message
 - replay - replay a log file from a previous fuzzing session
 - identify - replay a log file and identify message causing a specific event
 
-Detailed information on the [fuzzer-module](https://github.com/CaringCaribou/caringcaribou/blob/master/documentation/fuzzer.md).
+Details here: [fuzzer module](documentation/fuzzer.md)
 
-### listener.py - Listener
-- ArbId listener - register all ArbIds heard on the CAN bus
+### dump - Dump CAN traffic
+Dumps incoming traffic to stdout (terminal output) or file
 
-Detailed information on the [listener-module](https://github.com/CaringCaribou/caringcaribou/blob/master/documentation/listener.md).
+Details here: [dump module](documentation/dump.md)
 
-### send.py - Send CAN packets
-- Raw message transmission module, used to drive manual test cases
+### send - Send CAN packets
+Raw message transmission module, used to send messages manually from command line or replay dump files
 
-Detailed information on the [send-module](https://github.com/CaringCaribou/caringcaribou/blob/master/documentation/send.md).
+Details here:  [send module](documentation/send.md)
 
-### test.py - Run test suite
-- Runs the automated Caring Caribou test suites
+### listener - Listener
+Lists all distinct arbitration IDs being used on the CAN bus
 
-### dump.py - Dump CAN traffic
-- Dump incoming traffic to stdout or file
+Details here: [listener module](documentation/listener.md)
 
-Detailed information on the [dump-module](https://github.com/CaringCaribou/caringcaribou/blob/master/documentation/dump.md).
+### test - Run test suite
+Runs automated Caring Caribou test suites
+
+### dcm - [deprecated] Diagnostics Control Module
+**Note**: This module has been replaced by the [UDS](documentation/uds.md) module. It is still supported by CC due to legacy reasons.
+
+Details here: [dcm module](documentation/dcm.md)
+
+### uds_fuzz - Universal Diagnostic Services Fuzzer
+Fuzzing module for UDS security seed randomness evaluation and testing.
+- seed_randomness_fuzzer - ECUReset method fuzzing for seed randomness evaluation
+- delay_fuzzer - delay fuzzing for targets with weak randomness implemented, to match acquired seed/key pair to the delay in which the seed can be requested
+
+Details here: [uds_fuzz module](documentation/uds_fuzz.md)
+
+### doip - Diagnostic communication over Internet Protocol
+Discovers and utilizes various ISO 13400-2 services.
+- discovery - Scans for ECUs supporting diagnostics services
+- services - Scans for diagnostics services supported by an ECU
+- ecu_reset - Reset an ECU
+- security_seed - Request security seeds from an ECU
+- testerpresent - Force an elevated session against an ECU to stay active
+- dump_dids - Dumps values of Dynamic Data Identifiers (DIDs)
+- seed_randomness_fuzzer - ECUReset method fuzzing for seed randomness evaluation
+
+Details here: [doip module](documentation/doip.md)
 
 ## List of libraries
 The `/lib` folder contains the following libraries:
 
 ### can_actions.py
-Contains various shared module functionality. Provides abstraction for access to the CAN bus, CAN bruteforce engines etc.
+Provides abstraction for access to the CAN bus, bruteforce engines etc.
+
+### common.py
+Contains various common functions, type converters etc.
+
+### constants.py
+Constant definitions
 
 ### iso14229_1.py
 Implementation of the ISO-14229-1 standard for Unified Diagnostic Services (UDS).
@@ -91,15 +129,12 @@ Implementation of the ISO-14229-1 standard for Unified Diagnostic Services (UDS)
 Implementation of the ISO-15765-2 standard (ISO-TP). This is a transport protocol which enables sending of messages longer than 8 bytes over CAN by splitting them into multiple data frames.
 
 ## Hardware requirements
-Some sort of CAN bus interface compatible with socketCAN (http://elinux.org/CAN_Bus#CAN_Support_in_Linux)
+Some sort of CAN bus interface (http://elinux.org/CAN_Bus#CAN_Support_in_Linux)
 
 ## Software requirements
 - Python 2.7 or 3.x
 - python-can
 - a pretty modern linux kernel
-
-## How to install
-Instructions available [here](https://github.com/CaringCaribou/caringcaribou/blob/master/documentation/howtoinstall.md)
 
 ## Extending the project
 Create a python file with a function `module_main(args)` and put it in the ```tool/modules``` folder. Caring Caribou will automagically recognize it as a module and list it in the output of `./cc.py -h`
@@ -122,3 +157,8 @@ The target ECU used for the development setup is an STM32F107 based dev-board fr
 * Craig Smith (OpenGarages.org)
 * internot
 * Mathijs Hubrechtsen
+* Lear Corporation
+* sigttou
+* FearfulSpoon
+* Alex DeTrano
+* Thomas Sermpinis

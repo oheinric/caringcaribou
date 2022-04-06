@@ -1,4 +1,6 @@
-from lib.can_actions import CanActions, int_from_str_base, str_to_int_list
+from lib.can_actions import CanActions
+from lib.common import list_to_hex_str, parse_int_dec_or_hex, str_to_int_list
+from lib.constants import ARBITRATION_ID_MAX, ARBITRATION_ID_MAX_EXTENDED
 from time import sleep
 from sys import exit
 import argparse
@@ -6,6 +8,7 @@ import re
 
 
 FILE_LINE_COMMENT_PREFIX = "#"
+PADDING_BYTE = 0x00
 
 
 class CanMessage:
@@ -13,7 +16,7 @@ class CanMessage:
     Message wrapper class used by file parsers.
     """
 
-    def __init__(self, arb_id, data, delay, is_extended=False, is_error=False, is_remote=False):
+    def __init__(self, arb_id, data, delay, is_extended=None, is_error=False, is_remote=False):
         """
         :param arb_id: int - arbitration ID
         :param data: list of ints - data bytes
@@ -23,17 +26,21 @@ class CanMessage:
         self.data = data
         # Negative delays are not allowed
         self.delay = max([delay, 0.0])
-        self.is_extended = is_extended
+        if is_extended is None:
+            self.is_extended = arb_id > ARBITRATION_ID_MAX
+        else:
+            self.is_extended = is_extended
         self.is_error = is_error
         self.is_remote = is_remote
 
 
-def parse_messages(msgs, delay):
+def parse_messages(msgs, delay, pad):
     """
     Parses a list of message strings.
 
     :param delay: Delay between each message
     :param msgs: list of message strings
+    :param pad: bool indicating whether messages should be padded to 8 bytes
     :return: list of CanMessage instances
     """
     message_list = []
@@ -41,20 +48,26 @@ def parse_messages(msgs, delay):
     try:
         for msg in msgs:
             msg_parts = msg.split("#", 1)
-            arb_id = int_from_str_base(msg_parts[0])
+            # Check arbitration ID
+            arb_id = parse_int_dec_or_hex(msg_parts[0])
             if arb_id is None:
                 raise ValueError("Invalid arbitration ID: '{0}'".format(msg_parts[0]))
-            msg_data = []
+            if arb_id > ARBITRATION_ID_MAX_EXTENDED:
+                raise ValueError("Arbitration ID too large (max is 0x{0:x})".format(ARBITRATION_ID_MAX_EXTENDED))
             # Check data length
             byte_list = msg_parts[1].split(".")
             if not 0 < len(byte_list) <= 8:
                 raise ValueError("Invalid data length: {0}".format(len(byte_list)))
             # Validate data bytes
+            msg_data = []
             for byte in byte_list:
                 byte_int = int(byte, 16)
                 if not 0x00 <= byte_int <= 0xff:
                     raise ValueError("Invalid byte value: '{0}'".format(byte))
                 msg_data.append(byte_int)
+            if pad:
+                # Pad to 8 bytes
+                msg_data.extend([PADDING_BYTE] * (8 - len(msg_data)))
             fixed_msg = CanMessage(arb_id, msg_data, delay)
             message_list.append(fixed_msg)
         # No delay before sending first message
@@ -171,11 +184,38 @@ def send_messages(messages, loop):
                 msg = messages[i]
                 if i != 0 or loop_counter != 0:
                     sleep(msg.delay)
-                print("  Arb_id: 0x{0:08x}, data: {1}".format(msg.arb_id, ["{0:02x}".format(a) for a in msg.data]))
+                print("  Arb_id: 0x{0:08x}, data: {1}".format(msg.arb_id, list_to_hex_str(msg.data, ".")))
                 can_wrap.send(msg.data, msg.arb_id, msg.is_extended, msg.is_error, msg.is_remote)
             if not loop:
                 break
             loop_counter += 1
+
+
+def __handle_parse_messages(args):
+    """
+    Wrapper for parsing message strings
+
+    :param args: argument namespace
+    :return: list of CAN messages
+    """
+    message_strings = args.msg
+    delay = args.delay
+    pad = args.pad
+    messages = parse_messages(message_strings, delay, pad)
+    return messages
+
+
+def __handle_parse_file(args):
+    """
+    Wrapper for parsing a file containing messages
+
+    :param args: argument namespace
+    :return: list of CAN messages
+    """
+    filename = args.filename
+    delay = args.delay
+    messages = parse_file(filename, delay)
+    return messages
 
 
 def parse_args(args):
@@ -193,29 +233,31 @@ def parse_args(args):
                                      epilog="""Example usage:
   cc.py send message 0x7a0#c0.ff.ee.00.11.22.33.44
   cc.py send message -d 0.5 123#de.ad.be.ef 124#01.23.45
+  cc.py send message -p 0x100#11 0x100#22.33
   cc.py send file can_dump.txt
   cc.py send file -d 0.2 can_dump.txt""")
     subparsers = parser.add_subparsers(dest="module_function")
     subparsers.required = True
-    
+
     # Parser for sending messages from command line
     cmd_msgs = subparsers.add_parser("message")
-    cmd_msgs.add_argument("data", metavar="msg", nargs="+",
+    cmd_msgs.add_argument("msg", nargs="+",
                           help="message on format ARB_ID#DATA where ARB_ID is interpreted "
                                "as hex if it starts with 0x and decimal otherwise. DATA "
                                "consists of 1-8 bytes written in hex and separated by dots.")
     cmd_msgs.add_argument("--delay", "-d", metavar="D", type=float, default=0,
                           help="delay between messages in seconds")
     cmd_msgs.add_argument("--loop", "-l", action="store_true", help="loop message sequence (re-send over and over)")
-    cmd_msgs.set_defaults(func=parse_messages)
+    cmd_msgs.add_argument("--pad", "-p", action="store_true", help="automatically pad messages to 8 bytes length")
+    cmd_msgs.set_defaults(func=__handle_parse_messages)
 
     # Parser for sending messages from file
     file_msg = subparsers.add_parser("file")
-    file_msg.add_argument("data", metavar="filename", help="path to file")
+    file_msg.add_argument("filename", help="path to file")
     file_msg.add_argument("--delay", "-d", metavar="D", type=float, default=None,
                           help="delay between messages in seconds (overrides timestamps in file)")
     file_msg.add_argument("--loop", "-l", action="store_true", help="loop message sequence (re-send over and over)")
-    file_msg.set_defaults(func=parse_file)
+    file_msg.set_defaults(func=__handle_parse_file)
 
     args = parser.parse_args(args)
     return args
@@ -229,7 +271,7 @@ def module_main(args):
     """
     args = parse_args(args)
     print("Parsing messages")
-    messages = args.func(args.data, args.delay)
+    messages = args.func(args)
     if not messages:
         print("No messages parsed")
     else:

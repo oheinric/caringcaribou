@@ -1,4 +1,5 @@
 from lib.can_actions import DEFAULT_INTERFACE
+from lib.constants import ARBITRATION_ID_MAX_EXTENDED, ARBITRATION_ID_MAX
 import can
 import datetime
 import time
@@ -21,6 +22,7 @@ class IsoTp:
 
     FC_FS_CTS = 0
     FC_FS_WAIT = 1
+    FC_FS_OVFLW = 2
 
     SF_FRAME_ID = 0
     FF_FRAME_ID = 1
@@ -36,7 +38,7 @@ class IsoTp:
         # Setting default bus to None rather than the actual bus prevents a CanError when
         # called with a virtual CAN bus, while the OS is lacking a working CAN interface
         if bus is None:
-            self.bus = can.Bus(DEFAULT_INTERFACE, "socketcan")
+            self.bus = can.Bus(DEFAULT_INTERFACE)
         else:
             self.bus = bus
         self.arb_id_request = arb_id_request
@@ -48,15 +50,36 @@ class IsoTp:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.bus.shutdown()
 
-    def send_message(self, data, arbitration_id):
+    def _set_filters(self, filters):
+        """
+        Sets filters for the CAN bus - description can be found at
+        https://python-can.readthedocs.io/en/stable/bus.html#can.BusABC.set_filters
+
+        :param filters: dict specifying "can_id", "can_mask" and (optional) "extended" flag
+        :return: None
+        """
+        self.bus.set_filters(filters)
+
+    def set_filter_single_arbitration_id(self, arbitration_id):
+        """Set a filter to only receive incoming messages on 'arbitration_id'"""
+        arbitration_id_filter = [{"can_id": arbitration_id, "can_mask": ARBITRATION_ID_MAX_EXTENDED}]
+        self._set_filters(arbitration_id_filter)
+
+    def clear_filters(self):
+        """Remove arbitration ID filters"""
+        self._set_filters(None)
+
+    def send_message(self, data, arbitration_id, force_extended=False):
         """
         Transmits a message using 'arbitration_id' and 'data' on 'self.bus'
 
         :param data: Data to send
         :param arbitration_id: Arbitration ID to use
+        :param force_extended: Force extended arbitration ID
         :return: None
         """
-        msg = can.Message(arbitration_id=arbitration_id, data=data)
+        is_extended = force_extended or arbitration_id > ARBITRATION_ID_MAX
+        msg = can.Message(arbitration_id=arbitration_id, data=data, is_extended_id=is_extended)
         self.bus.send(msg)
 
     def decode_sf(self, frame):
@@ -151,11 +174,13 @@ class IsoTp:
         frames = self.get_frames_from_message(message)
         self.transmit(frames, self.arb_id_response, self.arb_id_request)
 
-    def indication(self, wait_window=None):
+    def indication(self, wait_window=None, trim_padding=True, first_frame_only=False):
         """
         Receives an ISO-15765-2 message (one or more frames) and returns its content.
 
         :param wait_window: Max time (in seconds) to wait before timeout
+        :param trim_padding: If True, removes message padding bytes from the received message
+        :param first_frame_only: If True, return first frame only (simulating overflow behavior for multi-frame message)
         :return: A list of received data bytes if successful, None otherwise
         """
         message = []
@@ -163,11 +188,18 @@ class IsoTp:
         if wait_window is None:
             wait_window = self.N_BS_TIMEOUT
         start_time = datetime.datetime.now()
+        end_time = start_time + datetime.timedelta(seconds=wait_window)
         sn = 0
         message_length = 0
 
         while True:
-            msg = self.bus.recv(self.N_BS_TIMEOUT)
+            # Timeout check
+            current_time = datetime.datetime.now()
+            if current_time >= end_time:
+                # Timeout
+                return None
+            # Receive frame
+            msg = self.bus.recv(wait_window)
             if msg is not None:
                 if msg.arbitration_id == self.arb_id_request:
                     flow_control_arbitration_id = self.arb_id_response
@@ -182,12 +214,21 @@ class IsoTp:
                     if frame_type == self.SF_FRAME_ID:
                         # Single frame (SF)
                         dl, message = self.decode_sf(frame)
-                        # Trim padding if length exceeds single frame data length (SF_DL)
-                        message = message[:dl]
+                        if trim_padding:
+                            # Trim padding, in case the data exceeds single frame data length (SF_DL)
+                            message = message[:dl]
                         break
                     elif frame_type == self.FF_FRAME_ID:
                         # First frame (FF) of a multi-frame message
                         message_length, message = self.decode_ff(frame)
+                        if first_frame_only:
+                            # This is a hack to make it possible to only retrieve the first frame of a multi-frame
+                            # response, by telling the sender to stop sending data due to overflow
+                            ovflw_frame = self.encode_fc(self.FC_FS_OVFLW, 0, 0)
+                            # Respond with overflow (OVFLW) message
+                            self.send_message(ovflw_frame, flow_control_arbitration_id)
+                            # Return the first frame only
+                            break
                         fc_frame = self.encode_fc(self.FC_FS_CTS, 0, 0)
                         sn = 0
                         # Respond with flow control (FC) message
@@ -198,22 +239,18 @@ class IsoTp:
                         if (sn + 1) % 16 == new_sn:
                             sn = new_sn
                             message += data
-                            if len(message) == message_length:
-                                break
-                            elif len(message) > message_length:
-                                # Trim padding if message length exceeds first frame data length (FF_DL)
-                                message = message[:message_length]
+                            if len(message) >= message_length:
+                                # Last frame received
+                                if trim_padding:
+                                    # Trim padding of last frame, which may exceed first frame data length (FF_DL)
+                                    message = message[:message_length]
+                                # Stop listening for more frames
                                 break
                             else:
                                 pass
                     else:
                         # Invalid frame type
                         return None
-            stop_time = datetime.datetime.now()
-            passed_time = stop_time - start_time
-            if passed_time.total_seconds() > wait_window:
-                # Timeout
-                return None
         return list(message)
 
     def transmit(self, frames, arbitration_id, arbitration_id_flow_control):
@@ -265,10 +302,13 @@ class IsoTp:
 
                         if number_of_frames_left_to_send < number_of_frames_left_to_send_in_block or block_size == 0:
                             number_of_frames_left_to_send_in_block = number_of_frames_left_to_send
-                        # If STmin is specified in microseconds (0x80-0xF0) or using reserved ranges (0x80-0xF0 and
+                        # If STmin is specified in microseconds (0xF1-0xF9) or using reserved ranges (0x80-0xF0 and
                         # 0xFA-0xFF), round up to one millisecond
                         if st_min > 0x7F:
                             st_min = 1
+                    elif fs == self.FC_FS_OVFLW:
+                        # Overflow - abort transmission
+                        return None
                     else:
                         # Timeout - did not receive a CTS message in time
                         return None
@@ -281,7 +321,8 @@ class IsoTp:
                     if number_of_frames_left_to_send_in_block > 0:
                         time.sleep(st_min / 1000)
 
-    def get_frames_from_message(self, message):
+    @staticmethod
+    def get_frames_from_message(message):
         """
         Returns a copy of 'message' split into frames,
         :param message: Message to split
@@ -289,37 +330,37 @@ class IsoTp:
         """
         frame_list = []
         message_length = len(message)
-        if message_length > self.MAX_MESSAGE_LENGTH:
+        if message_length > IsoTp.MAX_MESSAGE_LENGTH:
             error_msg = "Message too long for ISO-TP. Max allowed length is {0} bytes, received {1} bytes".format(
-                self.MAX_MESSAGE_LENGTH, message_length)
+                IsoTp.MAX_MESSAGE_LENGTH, message_length)
             raise ValueError(error_msg)
-        if message_length <= self.MAX_SF_LENGTH:
+        if message_length <= IsoTp.MAX_SF_LENGTH:
             # Single frame message
-            frame = [0] * self.MAX_FRAME_LENGTH
-            frame[0] = (self.SF_FRAME_ID << 4) | message_length
+            frame = [0] * IsoTp.MAX_FRAME_LENGTH
+            frame[0] = (IsoTp.SF_FRAME_ID << 4) | message_length
             for i in range(0, message_length):
                 frame[1 + i] = message[i]
             frame_list.append(frame)
         else:
             # Multiple frame message
             bytes_left_to_copy = message_length
-            frame = [0] * self.MAX_FRAME_LENGTH
+            frame = [0] * IsoTp.MAX_FRAME_LENGTH
             # Create first frame (FF)
-            frame[0] = (self.FF_FRAME_ID << 4) | (message_length >> 8)
+            frame[0] = (IsoTp.FF_FRAME_ID << 4) | (message_length >> 8)
             frame[1] = message_length & 0xFF
-            for i in range(0, self.MAX_FF_LENGTH):
+            for i in range(0, IsoTp.MAX_FF_LENGTH):
                 frame[2 + i] = message[i]
             frame_list.append(frame)
             # Create consecutive frames (CF)
-            bytes_copied = self.MAX_FF_LENGTH
+            bytes_copied = IsoTp.MAX_FF_LENGTH
             bytes_left_to_copy -= bytes_copied
             sn = 0
             while bytes_left_to_copy > 0:
                 sn = (sn + 1) % 16
-                frame = [0] * self.MAX_FRAME_LENGTH
-                frame[0] = (self.CF_FRAME_ID << 4) | sn
+                frame = [0] * IsoTp.MAX_FRAME_LENGTH
+                frame[0] = (IsoTp.CF_FRAME_ID << 4) | sn
                 # Fill current consecutive frame
-                for i in range(0, self.MAX_CF_LENGTH):
+                for i in range(0, IsoTp.MAX_CF_LENGTH):
                     if bytes_left_to_copy > 0:
                         frame[1 + i] = message[bytes_copied]
                         bytes_left_to_copy = bytes_left_to_copy - 1
